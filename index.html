@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f172a">
+<title>图片打包成 ZIP</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1b2437; --card2:#222d45; --line:#33415c;
+    --text:#eef2ff; --sub:#9fb0cc; --brand:#38bdf8; --brand2:#22c55e; --warn:#fbbf24;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+    padding:16px 14px calc(28px + env(safe-area-inset-bottom));
+    max-width:640px; margin:0 auto;
+  }
+  h1{font-size:20px; margin:4px 0 2px}
+  .sub{color:var(--sub); font-size:13px; margin-bottom:14px}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px}
+  #pick{
+    display:block; width:100%; padding:26px 14px; text-align:center; cursor:pointer;
+    border:2px dashed var(--line); border-radius:14px; background:var(--card);
+    color:var(--text); font-size:16px;
+  }
+  #pick:active{border-color:var(--brand); background:var(--card2)}
+  #pick b{display:block; font-size:17px; margin-bottom:4px}
+  #pick span{color:var(--sub); font-size:13px}
+  #file{display:none}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .switch{display:flex; align-items:center; gap:10px; font-size:15px}
+  .switch input{width:22px; height:22px; accent-color:var(--brand)}
+  .hint{color:var(--sub); font-size:12.5px; margin-top:6px}
+  .name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px}
+  .size{color:var(--sub); font-size:12px; flex:none}
+  .del{flex:none; background:#3a2130; color:#ffb4b4; border:1px solid #63324a; border-radius:8px; padding:5px 10px; font-size:12px}
+  #list{max-height:44vh; overflow:auto; -webkit-overflow-scrolling:touch}
+  .list-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; font-size:14px}
+  button.primary{
+    width:100%; padding:16px; border:0; border-radius:14px; font-size:17px; font-weight:600;
+    color:#05202e; background:linear-gradient(135deg,#7dd3fc,#22c55e); margin-top:2px;
+  }
+  button.primary:disabled{opacity:.45}
+  button.ghost{background:transparent; color:var(--sub); border:1px solid var(--line); border-radius:10px; padding:6px 12px; font-size:13px}
+  .bar{height:10px; background:#0c1424; border-radius:99px; overflow:hidden; margin:10px 0 6px}
+  .bar > i{display:block; height:100%; width:0; background:linear-gradient(90deg,#38bdf8,#22c55e); transition:width .18s}
+  #status{font-size:13.5px; color:var(--sub); min-height:20px; word-break:break-all}
+  .warn{color:var(--warn)}
+  .err{color:#ff9d9d}
+  .ok{color:#8ef0b0}
+  details{margin-top:8px} summary{color:var(--sub); font-size:13px}
+  details p{color:var(--sub); font-size:13px; margin:8px 0 0}
+  #empty{color:var(--sub); font-size:14px; padding:6px 0}
+</style>
+</head>
+<body>
+
+<h1>图片打包成 ZIP</h1>
+<div class="sub">选一堆图片 → 一键打包成一个压缩包下载。专为 iPhone / iPad 的 Safari 优化，可离线使用。</div>
+
+<label id="pick" for="file">
+  <b>＋ 选择图片</b>
+  <span>可一次选很多张（100+ 张也没问题）</span>
+</label>
+<input id="file" type="file" accept="image/*" multiple>
+
+<div class="card" style="margin-top:12px">
+  <div class="list-head">
+    <span>已选 <b id="count">0</b> 张 · 共 <b id="total">0 B</b></span>
+    <button class="ghost" id="clear">清空</button>
+  </div>
+  <div id="list"><div id="empty">还没有选择图片。</div></div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <label class="switch"><input type="checkbox" id="toJpg"> 统一转成 JPG</label>
+  </div>
+  <div class="hint">打开后：HEIC/PNG 等会转成 JPG 再打包，兼容性最好（但会重新编码，画质轻微变化）。关闭则原图原样打包，最快。</div>
+
+  <div class="row">
+    <label class="switch"><input type="checkbox" id="limitSize" checked> 长边限制 4096 像素</label>
+  </div>
+  <div class="hint">仅在上面的“转 JPG”打开时生效，可显著减小体积。</div>
+
+  <div class="row">
+    <span style="font-size:15px">压缩包名字</span>
+    <input id="zipname" value="" placeholder="图片打包" style="flex:1; min-width:0; background:#0c1424; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:9px 11px; font-size:15px">
+  </div>
+</div>
+
+<button class="primary" id="go" disabled>生成并下载 ZIP</button>
+
+<div class="card" style="margin-top:12px">
+  <div class="bar"><i id="progress"></i></div>
+  <div id="status">等待选择图片…</div>
+  <details>
+    <summary>使用提示 / 常见问题</summary>
+    <p>1）点“生成并下载 ZIP”后请<b>不要切走、不要锁屏</b>，Safari 需要时间在本地打包，图片越多越久。</p>
+    <p>2）打包完成后 Safari 会弹出下载项，选择“存储到「文件」”即可；也可以在地址栏左边的“下载”列表里找到。</p>
+    <p>3）如果点了没反应或页面刷新了，通常是图片太多导致 iPhone 内存不足。可以分两三次选（每次 30～50 张）再分别打包。</p>
+    <p>4）ZIP 采用“仅存储、不压缩”方式，图片本身已是压缩格式，这样速度最快且不会损失画质。</p>
+    <p>5）本页面完全在手机本地运行，图片不会上传到任何服务器。</p>
+  </details>
+</div>
+
+<script>
+// ZIPCORE_START
+/* ---------- 极简 ZIP 写入器（store 模式，无第三方库） ---------- */
+var CRC_TABLE = (function () {
+  var t = new Uint32Array(256);
+  for (var n = 0; n < 256; n++) {
+    var c = n;
+    for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  var c = 0xFFFFFFFF;
+  for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function dosDateTime(d) {
+  var time = ((d.getHours() & 31) << 11) | ((d.getMinutes() & 63) << 5) | ((d.getSeconds() / 2) & 31);
+  var date = (((d.getFullYear() - 1980) & 127) << 9) | (((d.getMonth() + 1) & 15) << 5) | (d.getDate() & 31);
+  return { time: time & 0xFFFF, date: date & 0xFFFF };
+}
+
+/**
+ * entries: [{ name: 'a.jpg', blob: Blob }]
+ * onProgress: (done, total, currentName) => void
+ * 返回 { blob, size }，内部一次只把一个文件读进内存。
+ */
+async function createZipBlob(entries, onProgress) {
+  var enc = new TextEncoder();
+  var parts = [];
+  var centrals = [];
+  var offset = 0;
+  var now = dosDateTime(new Date());
+
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    if (onProgress) onProgress(i, entries.length, e.name);
+
+    // 读取该文件计算 CRC（读完即丢，避免多文件同时占内存）
+    var buf = await e.blob.arrayBuffer();
+    var bytes = new Uint8Array(buf);
+    var crc = crc32(bytes);
+    var size = bytes.length;
+    bytes = null; buf = null;
+
+    var nameBytes = enc.encode(e.name);
+    var local = new Uint8Array(30 + nameBytes.length);
+    var dv = new DataView(local.buffer);
+    dv.setUint32(0, 0x04034b50, true);
+    dv.setUint16(4, 20, true);          // version needed
+    dv.setUint16(6, 0x0800, true);      // UTF-8 filename flag
+    dv.setUint16(8, 0, true);           // method: store
+    dv.setUint16(10, now.time, true);
+    dv.setUint16(12, now.date, true);
+    dv.setUint32(14, crc, true);
+    dv.setUint32(18, size, true);
+    dv.setUint32(22, size, true);
+    dv.setUint16(26, nameBytes.length, true);
+    dv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    parts.push(local, e.blob);
+
+    var cen = new Uint8Array(46 + nameBytes.length);
+    var dc = new DataView(cen.buffer);
+    dc.setUint32(0, 0x02014b50, true);
+    dc.setUint16(4, 20, true);          // version made by
+    dc.setUint16(6, 20, true);          // version needed
+    dc.setUint16(8, 0x0800, true);
+    dc.setUint16(10, 0, true);
+    dc.setUint16(12, now.time, true);
+    dc.setUint16(14, now.date, true);
+    dc.setUint32(16, crc, true);
+    dc.setUint32(20, size, true);
+    dc.setUint32(24, size, true);
+    dc.setUint16(28, nameBytes.length, true);
+    dc.setUint16(30, 0, true);          // extra len
+    dc.setUint16(32, 0, true);          // comment len
+    dc.setUint16(34, 0, true);          // disk
+    dc.setUint16(36, 0, true);          // internal attrs
+    dc.setUint32(38, 0, true);          // external attrs
+    dc.setUint32(42, offset, true);     // local header offset
+    cen.set(nameBytes, 46);
+    centrals.push(cen);
+
+    offset += local.length + size;
+    if (offset >= 0xFFFFFFFF) throw new Error('压缩包超过 4GB，请分批打包');
+    if (onProgress) onProgress(i + 1, entries.length, e.name);
+    await new Promise(function (r) { setTimeout(r, 0); }); // 让界面有机会刷新
+  }
+
+  var cdSize = 0;
+  for (var j = 0; j < centrals.length; j++) cdSize += centrals[j].length;
+
+  var end = new Uint8Array(22);
+  var de = new DataView(end.buffer);
+  de.setUint32(0, 0x06054b50, true);
+  de.setUint16(4, 0, true);
+  de.setUint16(6, 0, true);
+  de.setUint16(8, centrals.length, true);
+  de.setUint16(10, centrals.length, true);
+  de.setUint32(12, cdSize, true);
+  de.setUint32(16, offset, true);
+  de.setUint16(20, 0, true);
+
+  var all = parts.concat(centrals);
+  all.push(end);
+  var blob = new Blob(all, { type: 'application/zip' });
+  return { blob: blob, size: offset + cdSize + 22 };
+}
+// ZIPCORE_END
+
+/* ---------- 页面逻辑 ---------- */
+var picked = [];   // { name, blob, size, converted }
+var $ = function (id) { return document.getElementById(id); };
+
+function fmtSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+function stamp() {
+  var d = new Date(), p = function (x) { return String(x).padStart(2, '0'); };
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes());
+}
+function safeName(name, used) {
+  var n = String(name || 'image').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '').trim();
+  if (!n) n = 'image';
+  if (n.length > 120) n = n.slice(0, 116) + (n.lastIndexOf('.') > 0 ? n.slice(n.lastIndexOf('.')) : '');
+  if (used[n]) {
+    var dot = n.lastIndexOf('.'), base = dot > 0 ? n.slice(0, dot) : n, ext = dot > 0 ? n.slice(dot) : '';
+    var k = 2, cand;
+    do { cand = base + '(' + k + ')' + ext; k++; } while (used[cand]);
+    n = cand;
+  }
+  used[n] = 1;
+  return n;
+}
+
+function render() {
+  var total = 0;
+  for (var i = 0; i < picked.length; i++) total += picked[i].size;
+  $('count').textContent = picked.length;
+  $('total').textContent = fmtSize(total);
+  $('go').disabled = picked.length === 0;
+  var list = $('list');
+  list.innerHTML = '';
+  if (!picked.length) {
+    var em = document.createElement('div');
+    em.id = 'empty'; em.textContent = '还没有选择图片。';
+    list.appendChild(em);
+    return;
+  }
+  picked.forEach(function (it, idx) {
+    var row = document.createElement('div');
+    row.className = 'row';
+    var left = document.createElement('div');
+    left.style.minWidth = '0';
+    var nm = document.createElement('div');
+    nm.className = 'name';
+    nm.textContent = (idx + 1) + '. ' + it.name;
+    var sz = document.createElement('div');
+    sz.className = 'size';
+    sz.textContent = fmtSize(it.size) + (it.converted ? ' · 已转 JPG' : '');
+    left.appendChild(nm); left.appendChild(sz);
+    var del = document.createElement('button');
+    del.className = 'del'; del.textContent = '移除';
+    del.onclick = function () { picked.splice(idx, 1); render(); };
+    row.appendChild(left); row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+function addFiles(files) {
+  var added = 0;
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    if (!f) continue;
+    var isImg = /^image\//.test(f.type) || /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i.test(f.name || '');
+    if (!isImg) continue;
+    picked.push({ name: f.name || ('image_' + (picked.length + 1)), blob: f, size: f.size, converted: false });
+    added++;
+  }
+  status(added ? ('已添加 ' + added + ' 张，共 ' + picked.length + ' 张。') : '没有识别到图片文件。', added ? '' : 'err');
+  render();
+}
+
+function status(msg, cls) {
+  var el = $('status');
+  el.className = cls || '';
+  el.textContent = msg;
+}
+function progress(p) { $('progress').style.width = Math.max(0, Math.min(1, p)) * 100 + '%'; }
+
+$('pick').addEventListener('dragover', function (e) { e.preventDefault(); });
+$('pick').addEventListener('drop', function (e) {
+  e.preventDefault();
+  if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
+});
+
+$('file').addEventListener('change', function (e) {
+  addFiles(e.target.files);
+  e.target.value = ''; // 允许重复选同一批
+});
+
+$('clear').onclick = function () {
+  picked = [];
+  render(); progress(0); status('已清空。', '');
+};
+
+/* 把任意可解码图片转成 JPG（失败则返回 null，调用方保留原图） */
+async function toJpeg(file, maxSide, quality) {
+  var url = null, img = null, bitmap = null;
+  try {
+    if (typeof createImageBitmap === 'function') {
+      try { bitmap = await createImageBitmap(file); } catch (err) { bitmap = null; }
+    }
+    if (!bitmap) {
+      url = URL.createObjectURL(file);
+      img = await new Promise(function (res, rej) {
+        var im = new Image();
+        im.onload = function () { res(im); };
+        im.onerror = function () { rej(new Error('无法解码该图片')); };
+        im.src = url;
+      });
+    }
+    var sw = bitmap ? bitmap.width : img.naturalWidth || img.width;
+    var sh = bitmap ? bitmap.height : img.naturalHeight || img.height;
+    if (!sw || !sh) throw new Error('图片尺寸读取失败');
+    var scale = Math.min(1, maxSide / Math.max(sw, sh));
+    var w = Math.max(1, Math.round(sw * scale)), h = Math.max(1, Math.round(sh * scale));
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);   // 透明底转白
+    if (bitmap) ctx.drawImage(bitmap, 0, 0, w, h); else ctx.drawImage(img, 0, 0, w, h);
+    var out = await new Promise(function (res) { canvas.toBlob(res, 'image/jpeg', quality); });
+    canvas.width = canvas.height = 0;
+    if (!out) throw new Error('导出 JPG 失败');
+    return out;
+  } catch (err) {
+    return null;
+  } finally {
+    if (bitmap && bitmap.close) try { bitmap.close(); } catch (e) {}
+    if (url) URL.revokeObjectURL(url);
+    if (img) img.src = '';
+  }
+}
+
+$('go').onclick = async function () {
+  if (!picked.length || $('go').disabled) return;
+  var doJpg = $('toJpg').checked;
+  var maxSide = $('limitSize').checked ? 4096 : 1e9;
+  $('go').disabled = true;
+  progress(0);
+  status('准备中…', '');
+
+  var used = {};
+  var entries = [];
+  var failed = 0;
+
+  try {
+    for (var i = 0; i < picked.length; i++) {
+      var it = picked[i];
+      var out = it.blob;
+      var note = '';
+
+      if (doJpg) {
+        status('正在转换 ' + (i + 1) + '/' + picked.length + '：' + it.name, '');
+        progress((i / picked.length) * 0.5);
+        var jpg = await toJpeg(it.blob, maxSide, 0.9);
+        if (jpg) {
+          out = jpg;
+          note = '已转 JPG';
+        } else {
+          failed++;
+          note = '转换失败，保留原图';
+        }
+      } else {
+        status('正在校验 ' + (i + 1) + '/' + picked.length + '：' + it.name, '');
+        progress((i / picked.length) * 0.5);
+      }
+
+      var baseName = String(it.name || ('image_' + (i + 1)));
+      if (doJpg && out !== it.blob) baseName = baseName.replace(/\.[^.]*$/, '') + '.jpg';
+      entries.push({ name: safeName(baseName, used), blob: out, size: out.size, note: note });
+      await new Promise(function (r) { setTimeout(r, 0); });
+    }
+
+    var totalBytes = 0;
+    for (var k = 0; k < entries.length; k++) totalBytes += entries[k].size;
+    if (totalBytes > 1.6 * 1024 * 1024 * 1024) {
+      status('注意：总大小约 ' + fmtSize(totalBytes) + '，iPhone 上可能因内存不足失败，建议分批打包。', 'warn');
+    }
+
+    status('正在打包 ' + entries.length + ' 张图片…（请勿锁屏或切走）', '');
+    var res = await createZipBlob(
+      entries.map(function (e) { return { name: e.name, blob: e.blob }; }),
+      function (done, total, name) {
+        progress(0.5 + (done / Math.max(1, total)) * 0.5);
+        status('打包中 ' + done + '/' + total + '：' + name, '');
+      }
+    );
+
+    var nameEl = $('zipname');
+    var base = (nameEl.value || '图片打包').trim().replace(/[\\/:*?"<>|]/g, '_') || '图片打包';
+    var zipFileName = base + '_' + stamp() + '.zip';
+
+    var url = URL.createObjectURL(res.blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = zipFileName;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
+
+    progress(1);
+    var msg = '完成！共 ' + entries.length + ' 张，压缩包约 ' + fmtSize(res.blob.size) + '（' + zipFileName + '）。'
+      + '若没弹出下载提示，请在 Safari 地址栏左侧的“下载”里查看，或再点一次按钮。';
+    if (failed) msg += ' 有 ' + failed + ' 张无法转 JPG，已按原图打包。';
+    status(msg, 'ok');
+  } catch (err) {
+    progress(0);
+    status('出错了：' + (err && err.message ? err.message : err) + '。可以少选一些图片再试一次。', 'err');
+  } finally {
+    render();
+  }
+};
+
+$('zipname').value = '图片打包';
+progress(0);
+render();
+</script>
+</body>
+</html>
